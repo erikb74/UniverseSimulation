@@ -1,0 +1,28 @@
+{
+  "name": "universesimulation",
+  "version": "1.0.0",
+  "description": "Space Simulation",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/erikb74/UniverseSimulation.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/erikb74/UniverseSimulation/issues"
+  },
+  "homepage": "https://github.com/erikb74/UniverseSimulation#readme",
+  "devDependencies": {
+    "vite": "^7.3.1"
+  },
+  "dependencies": {
+    "phaser": "^3.90.0"
+  }
+}
