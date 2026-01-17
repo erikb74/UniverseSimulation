@@ -18,7 +18,7 @@
   "bugs": {
     "url": "https://github.com/erikb74/UniverseSimulation/issues"
   },
-  "homepage": "https://github.com/erikb74/UniverseSimulation#readme",
+  "homepage": "https://erikb74.github.io/UniverseSimulation",
   "devDependencies": {
     "vite": "^7.3.1"
   },
