@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { Simulation } from '../systems/Simulation.js';
 import { EntityRenderer } from '../utils/EntityRenderer.js';
+import { UIManager } from '../utils/UIManager.js';
 
 export default class MainScene extends Phaser.Scene {
   constructor() {
@@ -10,7 +11,7 @@ export default class MainScene extends Phaser.Scene {
     this.gridSize = 100;
     this.simulation = null;
     this.entityGraphics = null;
-    this.uiText = null;
+    this.uiManager = null;
   }
 
   create() {
@@ -30,35 +31,30 @@ export default class MainScene extends Phaser.Scene {
     // Render initial entities
     EntityRenderer.renderEntities(this.entityGraphics, this.simulation.getEntityManager());
 
-    // Create camera
+    // Create camera FIRST (main camera is cameras.main)
     this.setupCamera();
+
+    // Create UI camera (separate, fixed to screen)
+    this.createUICamera();
 
     // Input handling
     this.setupInputHandling();
 
-    // Create UI overlay
-    this.createUIOverlay();
+    // Create UI Manager
+    this.uiManager = new UIManager(this, this.simulation);
+    this.uiManager.createUI();
 
     // Log initial state
     console.log('MainScene created with world bounds:', this.worldWidth, 'x', this.worldHeight);
     console.log('Simulation state:', this.simulation.getState());
   }
 
-  createUIOverlay() {
-    // Create UI camera (fixed to screen, independent from world camera)
+  createUICamera() {
+    // Create a separate camera for UI that ignores world transformations
     this.uiCamera = this.cameras.add(0, 0, this.scale.width, this.scale.height);
-    this.uiCamera.ignore(this.entityGraphics);
-
-    // Create fixed UI text on UI layer
-    this.uiText = this.add.text(20, 20, '', {
-      font: '16px Arial',
-      fill: '#00ff00',
-      backgroundColor: '#000000',
-      padding: { x: 10, y: 10 },
-    });
-    this.uiText.setScrollFactor(0, 0); // Fixed to screen
-    this.uiText.setDepth(1000); // Render on top of everything
-    this.cameras.main.ignore(this.uiText); // Main camera ignores UI text
+    this.uiCamera.setName('uiCamera');
+    // UI camera ignores all world objects
+    this.uiCamera.ignore([this.children.list]);
   }
 
   createDebugGrid() {
@@ -120,6 +116,7 @@ export default class MainScene extends Phaser.Scene {
       this.cameraState.dragStartY = pointer.y;
       this.cameraState.dragStartCameraX = this.cameras.main.scrollX;
       this.cameraState.dragStartCameraY = this.cameras.main.scrollY;
+      this.cameraState.hasDragged = false; // Track if user actually dragged
 
       // Store initial distance for pinch detection
       if (input.pointer1.isDown && input.pointer2) {
@@ -135,6 +132,13 @@ export default class MainScene extends Phaser.Scene {
     // Pointer move event (drag panning)
     input.on('pointermove', (pointer) => {
       if (this.cameraState.isDragging) {
+        // Mark as dragged if moved more than 5 pixels
+        const deltaX = pointer.x - this.cameraState.dragStartX;
+        const deltaY = pointer.y - this.cameraState.dragStartY;
+        if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
+          this.cameraState.hasDragged = true;
+        }
+
         // Check for pinch zoom (two fingers)
         if (input.pointer1.isDown && input.pointer2) {
           this.handlePinchZoom();
@@ -145,9 +149,14 @@ export default class MainScene extends Phaser.Scene {
       }
     });
 
-    // Pointer up event
-    input.on('pointerup', () => {
+    // Pointer up event (handle entity selection)
+    input.on('pointerup', (pointer) => {
+      // Only treat as click if user didn't drag
+      if (!this.cameraState.hasDragged) {
+        this.handleEntityClick(pointer);
+      }
       this.cameraState.isDragging = false;
+      this.cameraState.hasDragged = false;
     });
 
     // Mouse wheel zoom
@@ -208,6 +217,51 @@ export default class MainScene extends Phaser.Scene {
     this.cameraState.initialDistance = currentDistance;
   }
 
+  handleEntityClick(pointer) {
+    // Convert screen coordinates to world coordinates using Phaser's built-in method
+    const camera = this.cameras.main;
+    const worldPoint = camera.getWorldPoint(pointer.x, pointer.y);
+    const worldX = worldPoint.x;
+    const worldY = worldPoint.y;
+
+    console.log(`Click at screen (${pointer.x}, ${pointer.y}) -> world (${worldX.toFixed(0)}, ${worldY.toFixed(0)})`);
+
+    // Get all entities
+    const entities = this.simulation.getEntityManager().getAllEntities();
+
+    // Define click radius for each entity type (larger for moving targets)
+    const clickRadii = {
+      base: 40,
+      asteroid: 25,
+      ship: 25, // Increased for easier selection of moving ships
+    };
+
+    // Find clicked entity (prioritize smaller entities for easier selection)
+    let clickedEntity = null;
+    let smallestDistance = Infinity;
+
+    entities.forEach((entity) => {
+      const radius = clickRadii[entity.type] || 10;
+      const dx = entity.x - worldX;
+      const dy = entity.y - worldY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance <= radius && distance < smallestDistance) {
+        clickedEntity = entity;
+        smallestDistance = distance;
+      }
+    });
+
+    // Update UI selection
+    if (clickedEntity) {
+      console.log(`Selected ${clickedEntity.type} #${clickedEntity.id}`);
+      this.uiManager.selectEntity(clickedEntity);
+    } else {
+      console.log('Deselected - clicked empty space');
+      this.uiManager.deselectEntity();
+    }
+  }
+
   update(time, delta) {
     // Call simulation tick with delta time
     if (this.simulation) {
@@ -216,26 +270,10 @@ export default class MainScene extends Phaser.Scene {
       // Re-render entities every frame
       EntityRenderer.renderEntities(this.entityGraphics, this.simulation.getEntityManager());
 
-      // Update UI overlay
-      this.updateUIOverlay();
+      // Update UI panels
+      if (this.uiManager) {
+        this.uiManager.update();
+      }
     }
-  }
-
-  updateUIOverlay() {
-    const state = this.simulation.getState();
-    const bases = this.simulation.getEntityManager().getEntitiesByType('base');
-    const baseResources = bases.length > 0 ? bases[0].resources : 0;
-    const baseConstruction = bases.length > 0 ? bases[0].constructionTimer : 0;
-
-    const constructionStatus = baseConstruction > 0
-      ? `${Math.round((baseConstruction / this.simulation.config.shipConstructionTime) * 100)}%`
-      : 'Idle';
-
-    this.uiText.setText(
-      `Resources: ${Math.floor(baseResources)}\n` +
-      `Ships: ${state.ships}\n` +
-      `Asteroids: ${state.asteroids}\n` +
-      `Construction: ${constructionStatus}`
-    );
   }
 }

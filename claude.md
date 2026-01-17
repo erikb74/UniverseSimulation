@@ -75,8 +75,8 @@ See [MainScene.js:input handling](src/scenes/MainScene.js) for implementation
 
 **Last Completed**:
 
-1. Base construction system + ship spawning (200 ore cost, 5s build time)
-2. Random world generation with safe zone + overlap prevention
+1. Smart ship AI load balancing (distributes ships across asteroids)
+2. Interactive UI system with entity selection and detail panels
 
 **Next**:
 

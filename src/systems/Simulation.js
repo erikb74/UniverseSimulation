@@ -50,6 +50,7 @@ export class Simulation {
    * Generate asteroids with random distribution
    * Applies safe zone constraint (no asteroids within 300px of base)
    * Prevents asteroid overlap (30px minimum distance)
+   * Ensures at least 5 asteroids spawn within detection range (800 units)
    *
    * @param {Object} base - Base entity
    * @param {number} count - Number of asteroids to generate
@@ -57,19 +58,34 @@ export class Simulation {
   generateRandomAsteroids(base, count) {
     const WORLD_BOUNDS = 4000;
     const SAFE_ZONE_RADIUS = 300; // No asteroids within this distance of base
+    const DETECTION_RADIUS = this.config.detectionRadius; // 800 units
     const ASTEROID_MIN_DISTANCE = 30; // Minimum distance between asteroids
     const MAX_ATTEMPTS = 100; // Prevent infinite loops
+    const CLOSE_ASTEROIDS_NEEDED = 5; // Guarantee some nearby asteroids
 
     const asteroids = [];
     let placed = 0;
+    let closeAsteroidsPlaced = 0;
 
     while (placed < count) {
       let attempts = 0;
 
       while (attempts < MAX_ATTEMPTS) {
-        // Random coordinates within world bounds
-        const x = Math.random() * WORLD_BOUNDS;
-        const y = Math.random() * WORLD_BOUNDS;
+        let x, y;
+
+        // Force first few asteroids to spawn within detection range
+        if (closeAsteroidsPlaced < CLOSE_ASTEROIDS_NEEDED) {
+          // Random angle
+          const angle = Math.random() * Math.PI * 2;
+          // Random distance between safe zone and detection radius
+          const distance = SAFE_ZONE_RADIUS + Math.random() * (DETECTION_RADIUS - SAFE_ZONE_RADIUS);
+          x = base.x + Math.cos(angle) * distance;
+          y = base.y + Math.sin(angle) * distance;
+        } else {
+          // Random coordinates within world bounds
+          x = Math.random() * WORLD_BOUNDS;
+          y = Math.random() * WORLD_BOUNDS;
+        }
 
         // Check safe zone constraint
         const distToBase = Math.sqrt((x - base.x) ** 2 + (y - base.y) ** 2);
@@ -97,6 +113,10 @@ export class Simulation {
         const newAsteroid = this.entityManager.createAsteroid(x, y);
         asteroids.push(newAsteroid);
         placed++;
+
+        if (distToBase <= DETECTION_RADIUS) {
+          closeAsteroidsPlaced++;
+        }
         break;
       }
 
@@ -106,7 +126,7 @@ export class Simulation {
       }
     }
 
-    console.log(`Generated ${placed} asteroids`);
+    console.log(`Generated ${placed} asteroids (${closeAsteroidsPlaced} within detection range)`);
   }
 
   /**
@@ -165,26 +185,51 @@ export class Simulation {
    */
   handleIdleState(ship) {
     const asteroids = this.entityManager.getEntitiesByType('asteroid');
+    const ships = this.entityManager.getEntitiesByType('ship');
 
     if (asteroids.length > 0) {
-      // Find nearest asteroid within detection radius
-      let nearestAsteroid = null;
-      let minDistance = this.config.detectionRadius;
+      // Find asteroids within detection radius
+      const candidateAsteroids = [];
 
       asteroids.forEach((asteroid) => {
         const dx = asteroid.x - ship.x;
         const dy = asteroid.y - ship.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
 
-        if (distance < minDistance) {
-          minDistance = distance;
-          nearestAsteroid = asteroid;
+        if (distance <= this.config.detectionRadius) {
+          candidateAsteroids.push({ asteroid, distance });
         }
       });
 
-      if (nearestAsteroid) {
-        ship.targetId = nearestAsteroid.id;
-        ship.state = 'MOVING_TO_RESOURCE';
+      if (candidateAsteroids.length > 0) {
+        // Sort by distance
+        candidateAsteroids.sort((a, b) => a.distance - b.distance);
+
+        // Count how many ships are already targeting each asteroid
+        const targetCounts = new Map();
+        ships.forEach((s) => {
+          if (s.id !== ship.id && s.targetId) {
+            targetCounts.set(s.targetId, (targetCounts.get(s.targetId) || 0) + 1);
+          }
+        });
+
+        // Prefer asteroids with fewer ships targeting them
+        let bestAsteroid = null;
+        let lowestCount = Infinity;
+
+        for (const { asteroid } of candidateAsteroids) {
+          const count = targetCounts.get(asteroid.id) || 0;
+          // Prefer less crowded asteroids
+          if (count < lowestCount) {
+            bestAsteroid = asteroid;
+            lowestCount = count;
+          }
+        }
+
+        if (bestAsteroid) {
+          ship.targetId = bestAsteroid.id;
+          ship.state = 'MOVING_TO_RESOURCE';
+        }
       }
     }
   }
