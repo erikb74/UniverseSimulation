@@ -1,7 +1,5 @@
 import Phaser from 'phaser';
-
-// Placeholder for main game initialization
-// Game configuration and scene setup will be added here
+import MainScene from './scenes/MainScene.js';
 
 const config = {
   type: Phaser.AUTO,
@@ -19,9 +17,7 @@ const config = {
       debug: false,
     },
   },
-  scene: [
-    // Scenes will be registered here
-  ],
+  scene: [MainScene],
 };
 
 const game = new Phaser.Game(config);

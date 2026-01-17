@@ -1,114 +1,91 @@
-# Universe Simulation - Project Governance
+# Universe Simulation - System Card
 
-## Project Goals
+## Core Philosophy
 
-- **Mobile-first Design**: Game should be responsive and playable on mobile and desktop devices.
-- **A-Life Simulation**: Implement autonomous entities that make decisions based on environmental conditions and internal state (inspired by STALKER's A-Life system).
-- **Separation of Logic and Rendering**: Strictly separate data models and simulation logic from Phaser scene rendering.
-- **Emergent Gameplay**: Create systems where complex behaviors emerge from simple entity interactions and rules.
-- **Scalability**: Support many autonomous entities (ships, bases, asteroids) without performance degradation.
+- **Mobile-First**: Responsive gameplay on mobile and desktop
+- **Logic/Render Separation**: Game logic in Simulation layer; Phaser handles only rendering
+- **Autonomous A-Life**: Ships make decisions via FSM based on environmental state
+- **Emergent Complexity**: Simple rules generate complex behaviors
+- **Scalability**: Support many entities without performance degradation
 
 ## Tech Stack
 
-- **Frontend**: Phaser 3 (game framework)
-- **Build Tool**: Vite (fast bundler and dev server)
-- **Runtime**: Node.js (for development and build)
-- **Language**: JavaScript (ES6+)
-- **Architecture**: Entity-Component-System (ECS) inspired separation
+Phaser 3 | Vite | Node.js | JavaScript ES6+ | ECS-inspired architecture
 
-## Current Architecture
+## Architecture Overview
 
-### Core Principles
+**Core Loop**: `MainScene.update()` → `Simulation.tick(delta)` → `EntityRenderer.render()` each frame
 
-1. **Data/Logic Separation**: All game logic, entity state, and simulation systems exist independently of Phaser.
-2. **Phaser as Rendering Layer**: Phaser scenes only consume data from the simulation and render visual representations.
-3. **Systems-Based Approach**: Game behavior is implemented through discrete systems that update entity state each frame.
-4. **Single Source of Truth**: Each entity has a single data representation; Phaser only displays it.
+**Key Files**:
 
-### Directory Structure
+- [src/systems/Simulation.js](src/systems/Simulation.js) — AI FSM, resource logic, world generation
+- [src/systems/EntityManager.js](src/systems/EntityManager.js) — Entity CRUD operations
+- [src/utils/EntityRenderer.js](src/utils/EntityRenderer.js) — Phaser rendering bridge
+- [src/scenes/MainScene.js](src/scenes/MainScene.js) — Camera, input, world bounds (4000×4000)
 
-```
-src/
-├── main.js                 # Entry point, game initialization
-├── scenes/                 # Phaser scene definitions
-│   └── GameScene.js       # Main game rendering scene
-├── entities/              # Entity data models
-│   ├── Base.js            # Base entity definition
-│   ├── Ship.js            # Ship entity definition
-│   └── Asteroid.js        # Asteroid entity definition
-├── systems/               # Simulation logic systems
-│   ├── MiningSystem.js    # Handles mining ship behavior
-│   ├── MovementSystem.js  # Handles entity movement
-│   └── AISystem.js        # Handles autonomous decision-making
-└── utils/                 # Helper functions and utilities
-    └── index.js           # Common utilities
-```
+## Ship AI - Finite State Machine
 
-## Entity Definitions
+Ships cycle through four states with deterministic exit conditions:
 
-### Base
-- **Purpose**: Static structure that serves as a resource processing and storage hub.
-- **Properties**:
-  - `id`: Unique identifier
-  - `position`: { x, y } coordinates
-  - `health`: Current hull integrity (0-100)
-  - `energy`: Energy reserves for operations
-  - `storage`: { ore: amount, water: amount, ... }
-  - `type`: "base"
-- **Behaviors**:
-  - Receives resources from mining ships
-  - Generates energy (passive)
-  - Can repair nearby ships
+| State | Behavior | Exit Condition |
+| --- | --- | --- |
+| **IDLE** | Scan for asteroids within 800-unit detection radius | Asteroid found → MOVING_TO_RESOURCE |
+| **MOVING_TO_RESOURCE** | Move toward asteroid at 100 u/s; stop at 55-unit orbit | Arrived (dist ≤ 55u) → MINING; target lost → IDLE |
+| **MINING** | Orbit at 50u radius, extract 5 ore/500ms | Timer ≥ 10s OR cargo ≥ 100 OR asteroid ≤ 0 → RETURN_TO_BASE; target lost → IDLE |
+| **RETURN_TO_BASE** | Move toward base; unload cargo on arrival | Arrived (dist ≤ 10u) → IDLE; no base → IDLE |
 
-### Ship (Miner)
-- **Purpose**: Autonomous entity that seeks asteroids, mines them, and returns to base.
-- **Properties**:
-  - `id`: Unique identifier
-  - `position`: { x, y } coordinates
-  - `velocity`: { vx, vy } direction and speed
-  - `health`: Current hull integrity (0-100)
-  - `energy`: Current fuel/energy reserves
-  - `cargo`: Current load capacity and contents
-  - `state`: "idle" | "mining" | "returning" | "refueling"
-  - `targetId`: ID of current target (asteroid or base)
-  - `type`: "ship"
-- **Behaviors**:
-  - Autonomously searches for asteroids
-  - Approaches and mines asteroids
-  - Returns to base when cargo is full or energy is low
-  - Avoids collisions with other entities
-  - Makes decisions based on environmental conditions
+**Base Construction**: Consumes 200 ore → 5-second build → spawns new ship at base location
 
-### Asteroid
-- **Purpose**: Static resource nodes that can be mined by ships.
-- **Properties**:
-  - `id`: Unique identifier
-  - `position`: { x, y } coordinates
-  - `radius`: Size of asteroid
-  - `ore`: Available ore to extract
-  - `type`: "asteroid"
-- **Behaviors**:
-  - Depletes as ships mine it
-  - Destroyed when ore reaches 0
-  - Provides no active behavior (passive resource)
+## Entity Data Structures
 
-## Change Log
+**Base**: `{ id, x, y, type: 'base', resources, constructionTimer }`
 
-### [2026-01-17]
-- **Initial Setup**
-  - Initialized Vite project with Phaser 3
-  - Created project directory structure
-  - Set up package.json with dev/build scripts
-  - Created vite.config.js for development configuration
-  - Created index.html as entry point
-  - Created src/main.js with basic Phaser game configuration
-  - Established project governance and architecture documentation in claude.md
+- Rendering: Blue 40×40 square
+- Role: Resource accumulator; constructs ships
 
----
+**Asteroid**: `{ id, x, y, type: 'asteroid', resourceAmount: 500 }`
 
-## Development Notes
+- Rendering: Gray circle (r=15)
+- Depletes via mining; auto-removed when resourceAmount ≤ 0
 
-- When making changes, update this file's Change Log section.
-- Refer to the Entity Definitions when creating new entity types.
-- Keep the separation between data (entities/) and rendering (scenes/) strict.
-- Systems should operate on entity data without knowledge of Phaser.
+**Ship**: `{ id, x, y, type: 'ship', cargo, state, targetId, miningTimer, orbitAngle, lastMineTime }`
+
+- Rendering: Color-coded 8-pixel circle (IDLE=yellow, MOVING=light yellow, MINING=orange+laser, RETURN=red)
+
+## World Generation
+
+Random asteroid placement via [Simulation.generateRandomAsteroids()](src/systems/Simulation.js):
+
+1. Generate random (x, y) within 4000×4000 bounds
+2. **Safe Zone**: Reject if within 300u of base center
+3. **Overlap Check**: Reject if within 30u of existing asteroid
+4. Max 100 attempts per asteroid; continue on failure
+
+Default: 15 asteroids at init; configurable via parameter.
+
+## Input & Camera
+
+- **Drag-to-Pan**: Single-finger drag (clamped to world bounds)
+- **Pinch-to-Zoom**: Two-finger pinch (0.5× to 3×)
+- **Mouse Wheel**: Desktop zoom support
+
+See [MainScene.js:input handling](src/scenes/MainScene.js) for implementation
+
+## Current Focus
+
+**Last Completed**:
+
+1. Base construction system + ship spawning (200 ore cost, 5s build time)
+2. Random world generation with safe zone + overlap prevention
+
+**Next**:
+
+- Collision avoidance between ships
+- Advanced mining logic (resource types, dynamic spawning)
+- Player interaction (click to select, build structures)
+
+## Development Guidelines
+
+- Keep logic in `src/systems/` independent of Phaser
+- Update this file when adding major features
+- Entity properties and FSM states are single source of truth
